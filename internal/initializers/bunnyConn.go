@@ -1,6 +1,8 @@
 package initializers
 
 import (
+	"log"
+
 	amqp091 "github.com/rabbitmq/amqp091-go"
 )
 
@@ -12,5 +14,6 @@ func ConnectToRabbitMQ(connString string) (*amqp091.Connection, error){
 	if err == nil {
 		return conn, nil
 	}
+	log.Println("Established connection to RabbitMQ")
 	return conn, err
 }
