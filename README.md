@@ -217,6 +217,7 @@ push-service/
 ├── internal/
 |   |── dto/
 │   ├── handlers/
+    |── initializers/
 │   ├── services/
 │   ├── queue/
 │   ├── repository/
