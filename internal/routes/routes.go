@@ -2,6 +2,7 @@ package routes
 
 import (
 	"github.com/gofiber/fiber/v2"
+	"github.com/rabbitmq/amqp091-go"
 	"github.com/whotterre/push_microservice/internal/config"
 	"github.com/whotterre/push_microservice/internal/handlers"
 	"github.com/whotterre/push_microservice/internal/repository"
@@ -9,9 +10,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func SetupRoutes(router *fiber.App, cfg *config.Config, db *gorm.DB) {
+func SetupRoutes(router *fiber.App, cfg *config.Config, db *gorm.DB, conn *amqp091.Connection) {
 	pushRepo := repository.NewPushRepository(db)
-	pushService := services.NewPushService(pushRepo)
+	pushService := services.NewPushService(pushRepo, db, conn)
 	pushHandler := handlers.NewPushHandler(pushService)
 
 	router.Post("/push/send", pushHandler.DoesSomething)

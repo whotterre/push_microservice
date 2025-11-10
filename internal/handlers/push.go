@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"log"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/whotterre/push_microservice/internal/services"
 )
@@ -15,11 +17,14 @@ func NewPushHandler(pushService services.PushService) *PushHandler {
 	}
 }
 
-
 func (h *PushHandler) GetHealth(c *fiber.Ctx) error {
-	return c.Status(fiber.StatusOK).JSON(fiber.Map{
-		"health_status": "healthy", 
-	})
+	healthResponse, err := h.pushService.GetHealth()
+	if err != nil {
+		log.Printf("Failed to get health status because: %s", err.Error())
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "failed to get health"})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(healthResponse)
 }
 
 func (h *PushHandler) DoesSomething(c *fiber.Ctx) error {
