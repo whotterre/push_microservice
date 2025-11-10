@@ -1,0 +1,317 @@
+# user-service/swagger.yaml
+openapi: 3.0.0
+info:
+  title: User Service
+  description: Manages user data and notification preferences
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8001/api
+    description: Development server
+
+paths:
+  /users/{user_id}:
+    get:
+      summary: Get user details
+      description: Retrieve user information and preferences
+      tags:
+        - Users
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: User data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '404':
+          description: User not found
+
+    put:
+      summary: Update user details
+      description: Update user information
+      tags:
+        - Users
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated successfully
+        '404':
+          description: User not found
+
+  /users:
+    post:
+      summary: Create new user
+      description: Register a new user in the system
+      tags:
+        - Users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+
+  /users/{user_id}/preferences:
+    get:
+      summary: Get user preferences
+      description: Retrieve notification preferences for a user
+      tags:
+        - Preferences
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Preferences retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PreferencesResponse'
+
+    put:
+      summary: Update user preferences
+      description: Update notification preferences for a user
+      tags:
+        - Preferences
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePreferencesRequest'
+      responses:
+        '200':
+          description: Preferences updated successfully
+
+  /auth/login:
+    post:
+      summary: User login
+      description: Authenticate user and return JWT token
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: Invalid credentials
+
+  /health:
+    get:
+      summary: Health check
+      tags:
+        - System
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  schemas:
+    CreateUserRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: "user@example.com"
+        password:
+          type: string
+          format: password
+          minLength: 6
+        push_token:
+          type: string
+          description: "Mobile push notification token"
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        email:
+          type: string
+          format: email
+        push_token:
+          type: string
+        email_verified:
+          type: boolean
+
+    UserResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            user:
+              $ref: '#/components/schemas/User'
+            preferences:
+              $ref: '#/components/schemas/Preferences'
+        message:
+          type: string
+        meta:
+          type: object
+
+    User:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        push_token:
+          type: string
+          nullable: true
+        email_verified:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Preferences:
+      type: object
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        email_notifications:
+          type: boolean
+          example: true
+        push_notifications:
+          type: boolean
+          example: true
+        preferred_language:
+          type: string
+          example: "en"
+        categories:
+          type: array
+          items:
+            type: string
+            enum: [promotional, transactional, alerts]
+          example: ["transactional", "alerts"]
+
+    UpdatePreferencesRequest:
+      type: object
+      properties:
+        email_notifications:
+          type: boolean
+        push_notifications:
+          type: boolean
+        preferred_language:
+          type: string
+          enum: [en, es, fr]
+        categories:
+          type: array
+          items:
+            type: string
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+
+    LoginResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+            user_id:
+              type: string
+              format: uuid
+            expires_in:
+              type: integer
+              example: 3600
+        message:
+          type: string
+          example: "Login successful"
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+        service:
+          type: string
+          example: "user-service"
+        dependencies:
+          type: object
+          properties:
+            database:
+              type: string
+              example: "connected"
+            redis:
+              type: string
+              example: "connected"

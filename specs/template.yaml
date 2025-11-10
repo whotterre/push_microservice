@@ -1,0 +1,391 @@
+# template-service/swagger.yaml
+openapi: 3.0.0
+info:
+  title: Template Service
+  description: Manages notification templates and variable substitution
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8004/api
+    description: Development server
+
+paths:
+  /templates:
+    get:
+      summary: List all templates
+      description: Get paginated list of notification templates
+      tags:
+        - Templates
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [email, push]
+          description: "Filter by template type"
+        - name: active
+          in: query
+          schema:
+            type: boolean
+          description: "Filter by active status"
+      responses:
+        '200':
+          description: Templates retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateListResponse'
+
+    post:
+      summary: Create new template
+      description: Create a new notification template
+      tags:
+        - Templates
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTemplateRequest'
+      responses:
+        '201':
+          description: Template created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+
+  /templates/{template_id}:
+    get:
+      summary: Get template details
+      description: Retrieve specific template by ID
+      tags:
+        - Templates
+      parameters:
+        - name: template_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Template retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TemplateResponse'
+        '404':
+          description: Template not found
+
+    put:
+      summary: Update template
+      description: Update an existing template (creates new version)
+      tags:
+        - Templates
+      parameters:
+        - name: template_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTemplateRequest'
+      responses:
+        '200':
+          description: Template updated successfully
+
+  /templates/{template_id}/render:
+    post:
+      summary: Render template with variables
+      description: Render template with provided variables for preview or sending
+      tags:
+        - Templates
+      parameters:
+        - name: template_id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: language
+          in: query
+          schema:
+            type: string
+            default: "en"
+            enum: [en, es, fr]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RenderTemplateRequest'
+      responses:
+        '200':
+          description: Template rendered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RenderTemplateResponse'
+        '400':
+          description: Missing required variables
+
+  /templates/{template_id}/versions:
+    get:
+      summary: Get template version history
+      description: Retrieve version history for a template
+      tags:
+        - Templates
+      parameters:
+        - name: template_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Version history retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VersionHistoryResponse'
+
+  /health:
+    get:
+      summary: Health check
+      tags:
+        - System
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  schemas:
+    CreateTemplateRequest:
+      type: object
+      required:
+        - name
+        - type
+        - subject
+        - content
+        - variables
+      properties:
+        name:
+          type: string
+          example: "welcome_email"
+        type:
+          type: string
+          enum: [email, push]
+        subject:
+          type: string
+          example: "Welcome {{name}}!"
+        content:
+          type: string
+          example: "Hello {{name}}, welcome to our service. Your account is now active."
+        variables:
+          type: array
+          items:
+            type: string
+          example: ["name", "action_url"]
+        language:
+          type: string
+          default: "en"
+          enum: [en, es, fr]
+        html_content:
+          type: string
+          description: "HTML version for email templates"
+
+    UpdateTemplateRequest:
+      type: object
+      properties:
+        subject:
+          type: string
+        content:
+          type: string
+        html_content:
+          type: string
+        variables:
+          type: array
+          items:
+            type: string
+        active:
+          type: boolean
+
+    RenderTemplateRequest:
+      type: object
+      required:
+        - variables
+      properties:
+        variables:
+          type: object
+          additionalProperties:
+            type: string
+          example:
+            name: "John Doe"
+            action_url: "https://app.com/dashboard"
+
+    TemplateResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          $ref: '#/components/schemas/Template'
+        message:
+          type: string
+        meta:
+          type: object
+
+    Template:
+      type: object
+      properties:
+        template_id:
+          type: string
+          example: "welcome_email"
+        name:
+          type: string
+          example: "Welcome Email"
+        type:
+          type: string
+          enum: [email, push]
+        subject:
+          type: string
+        content:
+          type: string
+        html_content:
+          type: string
+        variables:
+          type: array
+          items:
+            type: string
+        language:
+          type: string
+        version:
+          type: integer
+        active:
+          type: boolean
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TemplateListResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Template'
+        message:
+          type: string
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    RenderTemplateResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            subject:
+              type: string
+            content:
+              type: string
+            html_content:
+              type: string
+            variables_used:
+              type: array
+              items:
+                type: string
+            variables_missing:
+              type: array
+              items:
+                type: string
+        message:
+          type: string
+        meta:
+          type: object
+
+    VersionHistoryResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: array
+          items:
+            type: object
+            properties:
+              version:
+                type: integer
+              content:
+                type: string
+              created_at:
+                type: string
+                format: date-time
+              created_by:
+                type: string
+        message:
+          type: string
+        meta:
+          type: object
+
+    PaginationMeta:
+      type: object
+      properties:
+        total:
+          type: integer
+        limit:
+          type: integer
+        page:
+          type: integer
+        total_pages:
+          type: integer
+        has_next:
+          type: boolean
+        has_previous:
+          type: boolean
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+        service:
+          type: string
+          example: "template-service"
+        dependencies:
+          type: object
+          properties:
+            database:
+              type: string
+              example: "connected"

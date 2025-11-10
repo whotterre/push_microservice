@@ -1,0 +1,216 @@
+# email-service/swagger.yaml
+openapi: 3.0.0
+info:
+  title: Email Service
+  description: Processes and sends email notifications from queue
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8002/api
+    description: Development server
+
+paths:
+  /email/send:
+    post:
+      summary: Send email directly
+      description: Send email immediately (synchronous)
+      tags:
+        - Email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DirectEmailRequest'
+      responses:
+        '200':
+          description: Email sent successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailResponse'
+        '400':
+          description: Invalid request
+        '500':
+          description: Email sending failed
+
+  /email/status/{message_id}:
+    get:
+      summary: Get email status
+      description: Check delivery status of an email
+      tags:
+        - Email
+      parameters:
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmailStatusResponse'
+        '404':
+          description: Message not found
+
+  /health:
+    get:
+      summary: Health check
+      tags:
+        - System
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /metrics:
+    get:
+      summary: Service metrics
+      description: Get email service performance metrics
+      tags:
+        - System
+      responses:
+        '200':
+          description: Metrics retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MetricsResponse'
+
+components:
+  schemas:
+    DirectEmailRequest:
+      type: object
+      required:
+        - to_email
+        - subject
+        - content
+      properties:
+        to_email:
+          type: string
+          format: email
+          example: "user@example.com"
+        subject:
+          type: string
+          example: "Welcome to Our Service"
+        content:
+          type: string
+          example: "Hello, welcome to our platform!"
+        html_content:
+          type: string
+          description: "HTML version of email"
+        from_email:
+          type: string
+          format: email
+          example: "noreply@company.com"
+
+    EmailResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            message_id:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum: [sent, failed]
+            service_response:
+              type: string
+              description: "Response from SMTP service"
+            timestamp:
+              type: string
+              format: date-time
+        message:
+          type: string
+
+    EmailStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            message_id:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum: [queued, sending, sent, failed, bounced]
+            recipient:
+              type: string
+              format: email
+            subject:
+              type: string
+            sent_at:
+              type: string
+              format: date-time
+            delivery_info:
+              type: object
+              properties:
+                smtp_response:
+                  type: string
+                bounce_reason:
+                  type: string
+                retry_count:
+                  type: integer
+        message:
+          type: string
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+        service:
+          type: string
+          example: "email-service"
+        dependencies:
+          type: object
+          properties:
+            rabbitmq:
+              type: string
+              example: "connected"
+            smtp:
+              type: string
+              example: "connected"
+            template_service:
+              type: string
+              example: "connected"
+
+    MetricsResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            emails_sent_today:
+              type: integer
+            emails_failed_today:
+              type: integer
+            queue_length:
+              type: integer
+            average_processing_time:
+              type: number
+              format: float
+            smtp_errors:
+              type: integer
+        message:
+          type: string

@@ -1,0 +1,222 @@
+# push-service/swagger.yaml
+openapi: 3.0.0
+info:
+  title: Push Notification Service
+  description: Sends mobile and web push notifications
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8003/api
+    description: Development server
+
+paths:
+  /push/send:
+    post:
+      summary: Send push notification directly
+      description: Send push notification immediately (synchronous)
+      tags:
+        - Push
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DirectPushRequest'
+      responses:
+        '200':
+          description: Push notification sent
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushResponse'
+        '400':
+          description: Invalid request
+
+  /push/status/{message_id}:
+    get:
+      summary: Get push notification status
+      description: Check delivery status of a push notification
+      tags:
+        - Push
+      parameters:
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Status retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PushStatusResponse'
+
+  /push/tokens/{user_id}:
+    put:
+      summary: Update push token
+      description: Register or update push notification token for user
+      tags:
+        - Push
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTokenRequest'
+      responses:
+        '200':
+          description: Token updated successfully
+
+  /health:
+    get:
+      summary: Health check
+      tags:
+        - System
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+components:
+  schemas:
+    DirectPushRequest:
+      type: object
+      required:
+        - push_token
+        - title
+        - body
+      properties:
+        push_token:
+          type: string
+          description: "FCM or device push token"
+        title:
+          type: string
+          example: "Order Update"
+        body:
+          type: string
+          example: "Your order has been shipped"
+        image_url:
+          type: string
+          format: uri
+          description: "URL for rich notification image"
+        deep_link:
+          type: string
+          description: "App deep link URL"
+        data:
+          type: object
+          additionalProperties:
+            type: string
+          description: "Additional key-value data"
+        platform:
+          type: string
+          enum: [ios, android, web]
+          example: "android"
+
+    PushResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            message_id:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum: [sent, failed]
+            fcm_response:
+              type: object
+              description: "Raw response from FCM"
+            timestamp:
+              type: string
+              format: date-time
+        message:
+          type: string
+
+    PushStatusResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        data:
+          type: object
+          properties:
+            message_id:
+              type: string
+              format: uuid
+            status:
+              type: string
+              enum: [queued, sent, delivered, failed]
+            recipient_token:
+              type: string
+            platform:
+              type: string
+            sent_at:
+              type: string
+              format: date-time
+            delivery_info:
+              type: object
+              properties:
+                fcm_message_id:
+                  type: string
+                error_code:
+                  type: string
+                retry_count:
+                  type: integer
+        message:
+          type: string
+
+    UpdateTokenRequest:
+      type: object
+      required:
+        - push_token
+        - platform
+      properties:
+        push_token:
+          type: string
+          description: "New push notification token"
+        platform:
+          type: string
+          enum: [ios, android, web]
+        app_version:
+          type: string
+          description: "App version for analytics"
+
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: "healthy"
+        timestamp:
+          type: string
+          format: date-time
+        service:
+          type: string
+          example: "push-service"
+        dependencies:
+          type: object
+          properties:
+            rabbitmq:
+              type: string
+              example: "connected"
+            fcm:
+              type: string
+              example: "connected"
+            template_service:
+              type: string
+              example: "connected"
