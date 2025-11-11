@@ -3,6 +3,7 @@ package initializers
 import (
 	"log"
 
+	"github.com/whotterre/push_microservice/internal/models"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -18,7 +19,7 @@ func ConnectToDB(connString string) (*gorm.DB, error) {
 }
 
 func PerformMigrations(db *gorm.DB) error {
-	err := db.AutoMigrate()
+	err := db.AutoMigrate(&models.UserDevice{})
 	if err != nil {
 		log.Printf("Failed to perform migrations because: %s", err.Error())
 	}
