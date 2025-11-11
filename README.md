@@ -9,26 +9,27 @@ It works as part of the distributed notification architecture that also includes
 
 ## 🚀 Overview
 
-The **Push Service** listens to the `push.queue` from `notifications.direct` exchange and handles all outgoing push notifications.
-It integrates with push providers like **Firebase Cloud Messaging (FCM)**, **OneSignal**, or **Web Push (VAPID)**.
+The **Push Service** listens to the `push.send.queue` and `push.tokens.queue` from RabbitMQ and handles all outgoing push notifications.
+It integrates with **OneSignal** for multi-platform push notification delivery (web, iOS, Android).
 
 Core workflow:
 
-1. The **API Gateway** routes notification requests to `push.queue`.
-2. The **Push Service** consumes those messages and validates the push tokens.
-3. Sends the message to the correct provider (FCM, OneSignal, etc.).
+1. **Asynchronous**: The **API Gateway** routes notification requests to `push.send.queue` and device registrations to `push.tokens.queue`.
+2. The **Push Service** consumes those messages and validates the OneSignal Player IDs.
+3. Sends the message to OneSignal API.
 4. Logs status, updates retry counts, and handles failures gracefully.
+5. **Synchronous**: Direct REST API endpoints available for immediate push notification sending with instant feedback.
 
 ---
 
 ## 🧩 Responsibilities
 
-* Consume messages from RabbitMQ (`push.queue`)
-* Validate and store device tokens
-* Send notifications with title, body, image, and deep link
-* Retry failed deliveries with exponential backoff
-* Expose synchronous API endpoints for direct sends and status checks
+* Consume messages from RabbitMQ (`push.send.queue` and `push.tokens.queue`)
+* Register and manage user devices (map User IDs to OneSignal Player IDs)
+* Send push notifications via OneSignal REST API
+* Support both synchronous (REST API) and asynchronous (RabbitMQ) delivery modes
 * Provide health monitoring and dependency status
+* Handle device registration, updates, and deactivation
 
 ---
 
@@ -77,10 +78,10 @@ Core workflow:
 
 ## 🧠 Message Queue Setup
 
-| Exchange               | Queue          | Routing Key | Purpose                            |
-| ---------------------- | -------------- | ----------- | ---------------------------------- |
-| `notifications.direct` | `push.queue`   | `push`      | Push notification delivery         |
-| `notifications.direct` | `failed.queue` | `failed`    | Stores permanently failed messages |
+| Queue              | Purpose                                           |
+| ------------------ | ------------------------------------------------- |
+| `push.send.queue`  | Push notification delivery requests               |
+| `push.tokens.queue`| Device registration and token updates             |
 
 ---
 
@@ -92,25 +93,23 @@ Base URL:
 http://localhost:8003/api
 ```
 
-### **1. Send Push Notification (Direct)**
+### **1. Send Push Notification (Synchronous)**
 
 **POST** `/push/send`
 
-Send a push notification immediately (bypasses queue).
-Useful for admin panels or testing.
+Send a push notification immediately to a user (bypasses queue).
+Looks up the user's registered devices and sends via OneSignal.
 
 #### Request Body
 
 ```json
 {
-  "push_token": "device_fcm_token",
+  "user_id": "user123",
   "title": "Order Update",
-  "body": "Your order has been shipped",
-  "image_url": "https://cdn.example.com/order.png",
-  "deep_link": "myapp://orders/234",
-  "platform": "android",
+  "message": "Your order has been shipped",
   "data": {
-    "order_id": "234"
+    "order_id": "234",
+    "deep_link": "myapp://orders/234"
   }
 }
 ```
@@ -120,58 +119,28 @@ Useful for admin panels or testing.
 ```json
 {
   "success": true,
-  "data": {
-    "message_id": "c28b2fce-27a3-4e93-8c3e-98b1d1a2fd8f",
-    "status": "sent",
-    "timestamp": "2025-11-10T12:03:00Z"
-  },
-  "message": "Push notification sent successfully"
+  "message": "Notification sent successfully",
+  "onesignal_id": "c28b2fce-27a3-4e93-8c3e-98b1d1a2fd8f",
+  "recipients": 2,
+  "devices_found": 2
 }
 ```
 
 ---
 
-### **2. Get Notification Status**
+### **2. Register/Update Device**
 
-**GET** `/push/status/{message_id}`
+**POST** `/push/register`
 
-Retrieve the current delivery status of a specific push notification.
-
-#### Example Response
-
-```json
-{
-  "success": true,
-  "data": {
-    "message_id": "c28b2fce-27a3-4e93-8c3e-98b1d1a2fd8f",
-    "status": "delivered",
-    "recipient_token": "device_fcm_token",
-    "platform": "android",
-    "sent_at": "2025-11-10T12:03:00Z",
-    "delivery_info": {
-      "fcm_message_id": "0:1731234567890%abc12345",
-      "retry_count": 0
-    }
-  },
-  "message": "Status retrieved"
-}
-```
-
----
-
-### **3. Update User Push Token**
-
-**PUT** `/push/tokens/{user_id}`
-
-Register or update a user's push token (FCM, OneSignal, or web push key).
+Register or update a user's device with their OneSignal Player ID.
 
 #### Request Body
 
 ```json
 {
-  "push_token": "new_fcm_token",
-  "platform": "android",
-  "app_version": "3.1.0"
+  "user_id": "user123",
+  "onesignal_player_id": "abc123-def456-ghi789",
+  "platform": "web"
 }
 ```
 
@@ -179,13 +148,14 @@ Register or update a user's push token (FCM, OneSignal, or web push key).
 
 ```json
 {
-  "message": "Token updated successfully"
+  "success": true,
+  "message": "Device registered successfully"
 }
 ```
 
 ---
 
-### **4. Health Check**
+### **3. Health Check**
 
 **GET** `/health`
 
@@ -197,14 +167,30 @@ Checks the service’s dependencies and uptime.
 {
   "status": "healthy",
   "timestamp": "2025-11-10T12:10:00Z",
-  "service": "push-service",
+  "service": "Push Notifications Service",
   "dependencies": {
     "rabbitmq": "connected",
-    "fcm": "connected",
-    "template_service": "connected"
+    "postgresql": "connected"
   }
 }
 ```
+
+---
+
+## 🧪 Testing
+
+A test page is available for browser-based OneSignal subscription testing:
+
+**Static Test Page**: `http://localhost:4000/static/test-subscriber.html`
+
+**Note**: The `static/` folder contains test files with the OneSignal App ID embedded. These files should **not be committed to version control**. Add `static/` to `.gitignore` to prevent accidentally pushing secrets.
+
+### Test Endpoints
+
+**POST** `/test/push` - Send a test notification to specific Player IDs
+**GET** `/test/players` - Retrieve all registered OneSignal players
+
+See `TEST_GUIDE.md` for detailed testing instructions.
 
 ---
 
@@ -217,17 +203,19 @@ push-service/
 ├── internal/
 |   |── dto/
 │   ├── handlers/
-    |── initializers/
-│   ├── services/
-│   ├── queue/
-│   ├── repository/
-│   └── config/
-├── pkg/
-│   └── utils/
-├── specs/
-├── Dockerfile
-├── docker-compose.yml
-├── .env.example
+## 🧰 Environment Variables
+
+| Variable              | Description                                  |
+| --------------------- | -------------------------------------------- |
+| `RABBITMQ_URL`        | RabbitMQ connection string                   |
+| `ONESIGNAL_APP_ID`    | OneSignal App ID                             |
+| `ONESIGNAL_REST_KEY`  | OneSignal REST API key                       |
+| `DB_HOST`             | PostgreSQL host                              |
+| `DB_PORT`             | PostgreSQL port (default: 5432)              |
+| `DB_USER`             | PostgreSQL username                          |
+| `DB_PASSWORD`         | PostgreSQL password                          |
+| `DB_NAME`             | PostgreSQL database name                     |
+| `PORT`                | Service port (default: 4000)                 |
 └── README.md
 ```
 
@@ -247,11 +235,28 @@ push-service/
 
 ---
 
-## 🔁 Retry, Circuit Breaker & DLQ
+## �️ Database Schema
 
-* **Retries**: Uses exponential backoff for failed deliveries.
-* **Circuit Breaker**: Temporarily halts external calls if FCM or OneSignal repeatedly fail.
-* **Dead Letter Queue**: Permanently failed messages are moved to `failed.queue` for later inspection.
+### `user_devices` Table
+
+Stores the mapping between User IDs and OneSignal Player IDs:
+
+| Column       | Type      | Description                              |
+| ------------ | --------- | ---------------------------------------- |
+| `id`         | UUID      | Primary key                              |
+| `user_id`    | String    | User identifier (indexed)                |
+| `player_id`  | String    | OneSignal Player ID (unique)             |
+| `platform`   | String    | Platform: web, ios, android              |
+| `is_active`  | Boolean   | Whether device is active                 |
+| `created_at` | Timestamp | Device registration time                 |
+| `updated_at` | Timestamp | Last update time                         |
+
+---
+
+## 🔁 Error Handling & DLQ
+
+* **Synchronous Mode**: Returns immediate error response to caller with details
+* **Asynchronous Mode**: Failed messages should be routed to Dead Letter Queue (DLQ) for retry/inspection (pending implementation)
 
 ---
 
