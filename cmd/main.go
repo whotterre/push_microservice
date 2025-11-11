@@ -1,11 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/whotterre/push_microservice/internal/config"
 	"github.com/whotterre/push_microservice/internal/initializers"
+	"github.com/whotterre/push_microservice/internal/queue"
 	"github.com/whotterre/push_microservice/internal/routes"
 )
 
@@ -25,10 +32,50 @@ func main() {
 	if err != nil {
 		return
 	}
-	
-	app := fiber.New()
-	routes.SetupRoutes(app, cfg, db)
 
-	port := ":" + cfg.Port
-	app.Listen(port)
+	// Establish a connection to the message queue
+	conn, err := initializers.ConnectToRabbitMQ(cfg.RabbitMQURL)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+
+	// Create producer
+	producer := queue.NewPushProducer(conn)
+
+	app := fiber.New()
+	consumer := routes.SetupRoutes(app, cfg, db, conn, producer)
+
+	// Start consumer in background with cancellable context
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		if err := consumer.Consume(ctx); err != nil {
+			log.Printf("Consumer error: %v", err)
+		}
+	}()
+
+	// Start HTTP server in background
+	go func() {
+		port := ":" + cfg.Port
+		log.Printf("Starting server on port %s", port)
+		if err := app.Listen(port); err != nil {
+			log.Printf("Server error: %v", err)
+		}
+	}()
+
+	// Wait for interrupt signal for graceful shutdown
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+
+	log.Println("Shutdown signal received, gracefully stopping...")
+	cancel()
+	if err := app.Shutdown(); err != nil {
+		log.Printf("Server shutdown error: %v", err)
+	}
+
+	time.Sleep(2 * time.Second)
+	log.Println("Shutdown complete")
 }
