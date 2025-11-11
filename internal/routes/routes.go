@@ -13,13 +13,20 @@ import (
 
 func SetupRoutes(router *fiber.App, cfg *config.Config, db *gorm.DB, conn *amqp091.Connection, producer queue.PushProducer) *queue.PushConsumer {
 	pushRepo := repository.NewPushRepository(db)
-	pushService := services.NewPushService(pushRepo, db, conn, producer)
+	pushService := services.NewPushService(pushRepo, db, conn, producer, cfg)
 	pushHandler := handlers.NewPushHandler(pushService)
 	consumer := queue.NewPushConsumer(conn, pushService, 10) // 10 workers
 
-	router.Post("/push/send", pushHandler.DoesSomething)
-	router.Get("/push/status", pushHandler.DoesSomething) // /push/status/{message_id}
-	router.Put("/push/tokens", pushHandler.DoesSomething) // /push/tokens/{user_id}
+	// // Test endpoint for OneSignal integration
+	// testPushHandler := handlers.NewTestPushHandler(pushService)
+	// router.Post("/test/push", testPushHandler.TestSendPush)
+	// router.Get("/test/players", testPushHandler.GetPlayers)
+
+	// Production endpoints
+	router.Post("/push/send", pushHandler.SendPush)
+	router.Post("/push/register", pushHandler.RegisterDevice)
+	router.Get("/push/status", pushHandler.DoesSomething)   // /push/status/{message_id}
+	router.Put("/push/tokens", pushHandler.DoesSomething)   // /push/tokens/{user_id}
 	router.Get("/health", pushHandler.GetHealth)
 
 	return consumer
