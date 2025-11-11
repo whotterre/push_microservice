@@ -9,16 +9,21 @@ import (
 
 	"github.com/rabbitmq/amqp091-go"
 	"github.com/whotterre/push_microservice/internal/dto"
-	"github.com/whotterre/push_microservice/internal/services"
 )
+
+
+type MessageProcessor interface {
+	ProcessSendMessage(message []byte) error
+	ProcessTokenMessage(message []byte) error
+}
 
 type PushConsumer struct {
 	conn    *amqp091.Connection
-	service services.PushService
+	service MessageProcessor
 	workers int
 }
 
-func NewPushConsumer(conn *amqp091.Connection, service services.PushService, workers int) *PushConsumer {
+func NewPushConsumer(conn *amqp091.Connection, service MessageProcessor, workers int) *PushConsumer {
 	return &PushConsumer{
 		conn:    conn,
 		service: service,
@@ -49,7 +54,6 @@ func (c *PushConsumer) Consume(ctx context.Context) error {
 	log.Println("Shutting down consumer...")
 	return ch.Close()
 }
-
 func (c *PushConsumer) setupQueueConsumer(ch *amqp091.Channel, queueName string, handler func(amqp091.Delivery) error) error {
 	// Declare queue (idempotent)
 	_, err := ch.QueueDeclare(queueName, true, false, false, false, nil)
@@ -65,33 +69,33 @@ func (c *PushConsumer) setupQueueConsumer(ch *amqp091.Channel, queueName string,
 
 	// Process messages with concurrency control
 	sem := make(chan struct{}, c.workers)
-	
+
 	go func() {
 		for d := range msgs {
-			sem <- struct{}{} 
+			sem <- struct{}{}
 			go func(delivery amqp091.Delivery) {
-				defer func() { <-sem }() 
-				
+				defer func() { <-sem }()
+
 				start := time.Now()
 				correlationID := delivery.CorrelationId
 				if correlationID == "" {
 					correlationID = "unknown"
 				}
-				
+
 				log.Printf("[%s] Processing message from %s", correlationID, queueName)
-				
+
 				if err := handler(delivery); err != nil {
 					log.Printf("[%s] Handler failed after %v: %v", correlationID, time.Since(start), err)
-					_ = delivery.Nack(false, true) 
+					_ = delivery.Nack(false, true)
 					return
 				}
-				
+
 				log.Printf("[%s] Message processed successfully in %v", correlationID, time.Since(start))
 				_ = delivery.Ack(false)
 			}(d)
 		}
 	}()
-	
+
 	log.Printf("Started consumer for queue: %s", queueName)
 	return nil
 }
@@ -101,13 +105,13 @@ func (c *PushConsumer) handleSendMessage(d amqp091.Delivery) error {
 	if err := json.Unmarshal(d.Body, &req); err != nil {
 		return err
 	}
-	
+
 	// Use correlation ID from message if available
 	if d.CorrelationId != "" {
 		req.CorrelationID = d.CorrelationId
 	}
-	
-	return c.service.ProcessSendMessage(d.Body)  
+
+	return c.service.ProcessSendMessage(d.Body)
 }
 
 func (c *PushConsumer) handleTokenMessage(d amqp091.Delivery) error {
@@ -115,7 +119,7 @@ func (c *PushConsumer) handleTokenMessage(d amqp091.Delivery) error {
 	if err := json.Unmarshal(d.Body, &req); err != nil {
 		return err
 	}
-	
+
 	return c.service.ProcessTokenMessage(d.Body)
 }
 

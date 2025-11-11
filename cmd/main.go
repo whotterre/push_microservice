@@ -12,6 +12,7 @@ import (
 	"github.com/gofiber/fiber/v2"
 	"github.com/whotterre/push_microservice/internal/config"
 	"github.com/whotterre/push_microservice/internal/initializers"
+	"github.com/whotterre/push_microservice/internal/queue"
 	"github.com/whotterre/push_microservice/internal/routes"
 )
 
@@ -39,8 +40,11 @@ func main() {
 	}
 	defer conn.Close()
 
+	// Create producer
+	producer := queue.NewPushProducer(conn)
+
 	app := fiber.New()
-	consumer := routes.SetupRoutes(app, cfg, db, conn)
+	consumer := routes.SetupRoutes(app, cfg, db, conn, producer)
 
 	// Start consumer in background with cancellable context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -67,8 +71,7 @@ func main() {
 	<-sigCh
 
 	log.Println("Shutdown signal received, gracefully stopping...")
-	cancel() // stop consumer
-
+	cancel()
 	if err := app.Shutdown(); err != nil {
 		log.Printf("Server shutdown error: %v", err)
 	}

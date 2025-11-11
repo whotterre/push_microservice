@@ -6,26 +6,38 @@ import (
 
 	"github.com/rabbitmq/amqp091-go"
 	"github.com/whotterre/push_microservice/internal/dto"
+	"github.com/whotterre/push_microservice/internal/queue"
 	"github.com/whotterre/push_microservice/internal/repository"
 	"gorm.io/gorm"
 )
 
 type PushService interface {
 	GetHealth() (*dto.GetHealthResponse, error)
+	ProcessSendMessage(message []byte) error
+	ProcessTokenMessage(message []byte) error
 }
 
 type pushService struct {
 	pushRepo  repository.PushRepository
 	bunnyConn *amqp091.Connection
 	db        *gorm.DB
+	producer  queue.PushProducer
 }
 
-func NewPushService(pushRepo repository.PushRepository, db *gorm.DB, bunnyConn *amqp091.Connection) PushService {
+func NewPushService(pushRepo repository.PushRepository, db *gorm.DB, bunnyConn *amqp091.Connection, producer queue.PushProducer) PushService {
 	return &pushService{
 		pushRepo:  pushRepo,
 		bunnyConn: bunnyConn,
 		db:        db,
+		producer:  producer,
 	}
+}
+
+func (s *pushService) ProcessSendMessage(message []byte) error {
+	return nil
+}
+func (s *pushService) ProcessTokenMessage(message []byte) error {
+	return nil
 }
 
 func (s *pushService) GetHealth() (*dto.GetHealthResponse, error) {

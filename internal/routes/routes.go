@@ -11,9 +11,9 @@ import (
 	"gorm.io/gorm"
 )
 
-func SetupRoutes(router *fiber.App, cfg *config.Config, db *gorm.DB, conn *amqp091.Connection) *queue.PushConsumer {
+func SetupRoutes(router *fiber.App, cfg *config.Config, db *gorm.DB, conn *amqp091.Connection, producer queue.PushProducer) *queue.PushConsumer {
 	pushRepo := repository.NewPushRepository(db)
-	pushService := services.NewPushService(pushRepo, db, conn)
+	pushService := services.NewPushService(pushRepo, db, conn, producer)
 	pushHandler := handlers.NewPushHandler(pushService)
 	consumer := queue.NewPushConsumer(conn, pushService, 10) // 10 workers
 
