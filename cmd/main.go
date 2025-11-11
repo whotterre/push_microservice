@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/whotterre/push_microservice/internal/config"
 	"github.com/whotterre/push_microservice/internal/initializers"
 	"github.com/whotterre/push_microservice/internal/queue"
@@ -44,9 +45,9 @@ func main() {
 	producer := queue.NewPushProducer(conn)
 
 	app := fiber.New()
+	app.Use(cors.New())
 	consumer := routes.SetupRoutes(app, cfg, db, conn, producer)
 
-	// Start consumer in background with cancellable context
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -56,7 +57,6 @@ func main() {
 		}
 	}()
 
-	// Start HTTP server in background
 	go func() {
 		port := ":" + cfg.Port
 		log.Printf("Starting server on port %s", port)
