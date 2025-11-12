@@ -79,13 +79,24 @@ jobs:
         EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
         APP_DIR: ${{ secrets.APP_DIR }}
       run: |
+        # Validate required secrets
+        if [ -z "$EC2_HOST" ] || [ -z "$EC2_USER" ] || [ -z "$EC2_SSH_KEY" ] || [ -z "$APP_DIR" ]; then
+          echo "❌ Error: Required secrets are missing!"
+          echo "Please ensure these secrets are set in GitHub:"
+          echo "  - EC2_HOST"
+          echo "  - EC2_USER"
+          echo "  - EC2_SSH_KEY"
+          echo "  - APP_DIR"
+          exit 1
+        fi
+        
         # Create SSH key file
         echo "$EC2_SSH_KEY" > ec2_key.pem
         chmod 600 ec2_key.pem
         
         # Create .ssh directory and add EC2 to known_hosts
         mkdir -p ~/.ssh
-        ssh-keyscan -H $EC2_HOST >> ~/.ssh/known_hosts
+        ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts
         
         # Create deployment package
         tar -czf deploy.tar.gz push_microservice
