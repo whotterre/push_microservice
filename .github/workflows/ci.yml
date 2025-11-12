@@ -83,7 +83,8 @@ jobs:
         echo "$EC2_SSH_KEY" > ec2_key.pem
         chmod 600 ec2_key.pem
         
-        # Add EC2 to known_hosts
+        # Create .ssh directory and add EC2 to known_hosts
+        mkdir -p ~/.ssh
         ssh-keyscan -H $EC2_HOST >> ~/.ssh/known_hosts
         
         # Create deployment package
