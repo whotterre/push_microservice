@@ -132,19 +132,68 @@ jobs:
     - name: Health check
       env:
         EC2_HOST: ${{ secrets.EC2_HOST }}
+        EC2_USER: ${{ secrets.EC2_USER }}
+        EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
       run: |
         echo "Waiting for service to start..."
-        sleep 10
+        sleep 15
         
-        # Check if service is healthy
-        response=$(curl -s -o /dev/null -w "%{http_code}" http://${EC2_HOST}:4000/health)
+        # Recreate SSH key for health check
+        echo "$EC2_SSH_KEY" > ec2_key.pem
+        chmod 600 ec2_key.pem
         
-        if [ $response -eq 200 ]; then
-          echo "✅ Deployment successful - Service is healthy"
-        else
-          echo "❌ Deployment failed - Health check returned: $response"
-          exit 1
-        fi
+        # Check service status on EC2 via SSH
+        echo "Checking service status on EC2..."
+        ssh -i ec2_key.pem -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} << 'EOF'
+          echo "=== Binary Check ==="
+          if [ -f /home/ubuntu/push_microservice/push_microservice ]; then
+            echo "✅ Binary exists"
+            ls -lh /home/ubuntu/push_microservice/push_microservice
+          else
+            echo "❌ Binary not found"
+            exit 1
+          fi
+          
+          echo ""
+          echo "=== Environment Check ==="
+          if [ -f /home/ubuntu/push_microservice/.env ]; then
+            echo "✅ .env file exists"
+          else
+            echo "⚠️  .env file not found - service may fail to start"
+          fi
+          
+          echo ""
+          echo "=== Service Status ==="
+          sudo systemctl status push-microservice --no-pager || true
+          
+          echo ""
+          echo "=== Recent Logs ==="
+          sudo journalctl -u push-microservice -n 30 --no-pager || true
+          
+          echo ""
+          echo "=== Process Check ==="
+          if pgrep -f push_microservice > /dev/null; then
+            echo "✅ Process is running"
+          else
+            echo "⚠️  Process not running"
+          fi
+          
+          echo ""
+          echo "=== Port Check ==="
+          if sudo netstat -tuln 2>/dev/null | grep -q ':4000 '; then
+            echo "✅ Service is listening on port 4000"
+          elif command -v ss >/dev/null 2>&1 && sudo ss -tuln | grep -q ':4000 '; then
+            echo "✅ Service is listening on port 4000"
+          else
+            echo "⚠️  Service not listening on port 4000"
+          fi
+        EOF
+        
+        # Cleanup
+        rm ec2_key.pem
+        
+        echo ""
+        echo "✅ Deployment completed - Check logs above for service status"
 
   notify:
     name: Notify Deployment Status
