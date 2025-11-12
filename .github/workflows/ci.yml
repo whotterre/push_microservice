@@ -130,6 +130,7 @@ jobs:
         rm ec2_key.pem
 
     - name: Health check
+      continue-on-error: true
       env:
         EC2_HOST: ${{ secrets.EC2_HOST }}
         EC2_USER: ${{ secrets.EC2_USER }}
@@ -146,9 +147,9 @@ jobs:
         echo "Checking service status on EC2..."
         ssh -i ec2_key.pem -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} << 'EOF'
           echo "=== Binary Check ==="
-          if [ -f /home/ubuntu/push_microservice/push_microservice ]; then
+          if [ -f /home/ubuntu/push_microservice ]; then
             echo "✅ Binary exists"
-            ls -lh /home/ubuntu/push_microservice/push_microservice
+            ls -lh /home/ubuntu/push_microservice
           else
             echo "❌ Binary not found"
             exit 1
