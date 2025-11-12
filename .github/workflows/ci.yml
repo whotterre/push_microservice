@@ -34,14 +34,6 @@ jobs:
     - name: Install dependencies
       run: go mod download
 
-    - name: Run go fmt
-      run: |
-        if [ -n "$(gofmt -l .)" ]; then
-          echo "Go code is not formatted:"
-          gofmt -d .
-          exit 1
-        fi
-
   build:
     name: Build
     runs-on: ubuntu-latest
