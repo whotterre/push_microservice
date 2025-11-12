@@ -1,0 +1,167 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  GO_VERSION: '1.25'
+  
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Run go fmt
+      run: |
+        if [ -n "$(gofmt -l .)" ]; then
+          echo "Go code is not formatted:"
+          gofmt -d .
+          exit 1
+        fi
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Build application
+      run: go build -v -o push_microservice ./cmd
+
+    - name: Upload binary artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: push_microservice
+        path: push_microservice
+        retention-days: 1
+
+  deploy:
+    name: Deploy to AWS EC2
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download binary artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: push_microservice
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Deploy to EC2
+      env:
+        EC2_HOST: ${{ secrets.EC2_HOST }}
+        EC2_USER: ${{ secrets.EC2_USER }}
+        EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+        APP_DIR: ${{ secrets.APP_DIR }}
+      run: |
+        # Create SSH key file
+        echo "$EC2_SSH_KEY" > ec2_key.pem
+        chmod 600 ec2_key.pem
+        
+        # Add EC2 to known_hosts
+        ssh-keyscan -H $EC2_HOST >> ~/.ssh/known_hosts
+        
+        # Create deployment package
+        tar -czf deploy.tar.gz push_microservice
+        
+        # Copy files to EC2
+        scp -i ec2_key.pem deploy.tar.gz ${EC2_USER}@${EC2_HOST}:${APP_DIR}/
+        
+        # Deploy on EC2
+        ssh -i ec2_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
+          cd ${APP_DIR}
+          
+          # Extract new binary
+          tar -xzf deploy.tar.gz
+          rm deploy.tar.gz
+          
+          # Make binary executable
+          chmod +x push_microservice
+          
+          # Reload systemd service (if using systemd)
+          sudo systemctl restart push-microservice
+          
+          # Or restart using Docker Compose (if using Docker)
+          # docker-compose down
+          # docker-compose up -d --build
+          
+          echo "Deployment completed successfully"
+        EOF
+        
+        # Cleanup
+        rm ec2_key.pem
+
+    - name: Health check
+      env:
+        EC2_HOST: ${{ secrets.EC2_HOST }}
+      run: |
+        echo "Waiting for service to start..."
+        sleep 10
+        
+        # Check if service is healthy
+        response=$(curl -s -o /dev/null -w "%{http_code}" http://${EC2_HOST}:4000/health)
+        
+        if [ $response -eq 200 ]; then
+          echo "✅ Deployment successful - Service is healthy"
+        else
+          echo "❌ Deployment failed - Health check returned: $response"
+          exit 1
+        fi
+
+  notify:
+    name: Notify Deployment Status
+    runs-on: ubuntu-latest
+    needs: deploy
+    if: always()
+    
+    steps:
+    - name: Deployment Success
+      if: needs.deploy.result == 'success'
+      run: |
+        echo "✅ Deployment to EC2 completed successfully"
+        
+    - name: Deployment Failure
+      if: needs.deploy.result == 'failure'
+      run: |
+        echo "❌ Deployment to EC2 failed"
+        exit 1
