@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rabbitmq/amqp091-go"
 	"github.com/whotterre/push_microservice/internal/client"
 	"github.com/whotterre/push_microservice/internal/config"
@@ -175,9 +176,13 @@ func (s *pushService) SendPushNotification(req *dto.PushRequest) (*dto.PushRespo
 		log.Printf("No active devices found for user: %s", req.UserID)
 
 		// Create notification log for failed attempt
+		notifID := req.NotificationID
+		if notifID == "" {
+			notifID = uuid.New().String()
+		}
 		errorMsg := fmt.Sprintf("no active devices for user: %s", req.UserID)
 		notificationLog := &models.NotificationLog{
-			NotificationID: req.NotificationID,
+			NotificationID: notifID,
 			UserID:         req.UserID,
 			Status:         string(dto.NotificationStatusFailed),
 			Recipients:     0,
@@ -206,9 +211,13 @@ func (s *pushService) SendPushNotification(req *dto.PushRequest) (*dto.PushRespo
 		log.Printf("Failed to send notification: %v", err)
 
 		// Create notification log for failed attempt
+		notifID := req.NotificationID
+		if notifID == "" {
+			notifID = uuid.New().String()
+		}
 		errorMsg := err.Error()
 		notificationLog := &models.NotificationLog{
-			NotificationID: req.NotificationID,
+			NotificationID: notifID,
 			UserID:         req.UserID,
 			Status:         string(dto.NotificationStatusFailed),
 			Recipients:     0,
