@@ -106,95 +106,101 @@ jobs:
         scp -i ec2_key.pem deploy.tar.gz ${EC2_USER}@${EC2_HOST}:${APP_DIR}/
         
         # Deploy on EC2
-        ssh -i ec2_key.pem ${EC2_USER}@${EC2_HOST} << 'EOF'
-          cd ${APP_DIR}
+        ssh -i ec2_key.pem ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
+          cd '"$APP_DIR"'
+          
+          # Stop the running service first
+          echo "Stopping service..."
+          sudo systemctl stop push-microservice || true
           
           # Extract new binary
+          echo "Extracting binary..."
           tar -xzf deploy.tar.gz
           rm deploy.tar.gz
           
           # Make binary executable
           chmod +x push_microservice
           
-          # Reload systemd service (if using systemd)
-          sudo systemctl restart push-microservice
+          # Start the service
+          echo "Starting service..."
+          sudo systemctl start push-microservice
           
-          # Or restart using Docker Compose (if using Docker)
-          # docker-compose down
-          # docker-compose up -d --build
+          # Wait a moment for service to initialize
+          sleep 5
+          
+          # Check if service started successfully
+          if sudo systemctl is-active --quiet push-microservice; then
+            echo "✅ Service started successfully"
+          else
+            echo "❌ Service failed to start"
+            sudo journalctl -u push-microservice -n 20 --no-pager
+            exit 1
+          fi
           
           echo "Deployment completed successfully"
-        EOF
+        ENDSSH
         
         # Cleanup
         rm ec2_key.pem
 
     - name: Health check
-      continue-on-error: true
       env:
         EC2_HOST: ${{ secrets.EC2_HOST }}
         EC2_USER: ${{ secrets.EC2_USER }}
         EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
       run: |
-        echo "Waiting for service to start..."
-        sleep 15
+        echo "Waiting for service to fully initialize..."
+        sleep 10
         
         # Recreate SSH key for health check
         echo "$EC2_SSH_KEY" > ec2_key.pem
         chmod 600 ec2_key.pem
         
         # Check service status on EC2 via SSH
-        echo "Checking service status on EC2..."
-        ssh -i ec2_key.pem -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} << 'EOF'
-          echo "=== Binary Check ==="
-          if [ -f /home/ubuntu/push_microservice ]; then
-            echo "✅ Binary exists"
-            ls -lh /home/ubuntu/push_microservice
-          else
-            echo "❌ Binary not found"
-            exit 1
-          fi
-          
-          echo ""
-          echo "=== Environment Check ==="
-          if [ -f /home/ubuntu/push_microservice/.env ]; then
-            echo "✅ .env file exists"
-          else
-            echo "⚠️  .env file not found - service may fail to start"
-          fi
-          
-          echo ""
+        echo "Verifying deployment..."
+        ssh -i ec2_key.pem -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
           echo "=== Service Status ==="
           sudo systemctl status push-microservice --no-pager || true
           
           echo ""
           echo "=== Recent Logs ==="
-          sudo journalctl -u push-microservice -n 30 --no-pager || true
+          sudo journalctl -u push-microservice -n 50 --no-pager || true
           
           echo ""
           echo "=== Process Check ==="
           if pgrep -f push_microservice > /dev/null; then
             echo "✅ Process is running"
+            ps aux | grep push_microservice | grep -v grep
           else
-            echo "⚠️  Process not running"
+            echo "❌ Process not running"
+            exit 1
           fi
           
           echo ""
           echo "=== Port Check ==="
-          if sudo netstat -tuln 2>/dev/null | grep -q ':4000 '; then
-            echo "✅ Service is listening on port 4000"
-          elif command -v ss >/dev/null 2>&1 && sudo ss -tuln | grep -q ':4000 '; then
+          if sudo ss -tuln | grep -q ':4000 '; then
             echo "✅ Service is listening on port 4000"
           else
-            echo "⚠️  Service not listening on port 4000"
+            echo "❌ Service not listening on port 4000"
+            exit 1
           fi
-        EOF
+          
+          echo ""
+          echo "=== Health Endpoint Check ==="
+          if curl -f -s http://localhost:4000/health > /dev/null; then
+            echo "✅ Health endpoint responding"
+            curl -s http://localhost:4000/health | jq '.' || curl -s http://localhost:4000/health
+          else
+            echo "❌ Health endpoint not responding"
+            exit 1
+          fi
+        ENDSSH
         
         # Cleanup
         rm ec2_key.pem
         
         echo ""
-        echo "✅ Deployment completed - Check logs above for service status"
+        echo "✅ Deployment and health checks passed!"
 
   notify:
     name: Notify Deployment Status
