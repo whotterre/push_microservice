@@ -109,9 +109,17 @@ jobs:
         ssh -i ec2_key.pem ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
           cd '"$APP_DIR"'
           
-          # Stop the running service first
-          echo "Stopping service..."
-          sudo systemctl stop push-microservice || true
+          # Check if systemd service exists
+          echo "Checking systemd service..."
+          if [ -f /etc/systemd/system/push-microservice.service ]; then
+            echo "✅ Systemd service file exists"
+            
+            # Stop the running service first
+            echo "Stopping service..."
+            sudo systemctl stop push-microservice || true
+          else
+            echo "⚠️  Systemd service file not found - will run binary directly"
+          fi
           
           # Extract new binary
           echo "Extracting binary..."
@@ -121,20 +129,51 @@ jobs:
           # Make binary executable
           chmod +x push_microservice
           
-          # Start the service
-          echo "Starting service..."
-          sudo systemctl start push-microservice
+          # Kill any existing process
+          echo "Killing any existing process..."
+          pkill -f push_microservice || true
+          sleep 2
           
-          # Wait a moment for service to initialize
-          sleep 5
-          
-          # Check if service started successfully
-          if sudo systemctl is-active --quiet push-microservice; then
-            echo "✅ Service started successfully"
+          # Check if systemd service is available
+          if [ -f /etc/systemd/system/push-microservice.service ]; then
+            # Start via systemd
+            echo "Starting service via systemd..."
+            sudo systemctl daemon-reload
+            sudo systemctl start push-microservice
+            
+            # Wait a moment for service to initialize
+            sleep 5
+            
+            # Check if service started successfully
+            if sudo systemctl is-active --quiet push-microservice; then
+              echo "✅ Service started successfully via systemd"
+            else
+              echo "❌ Service failed to start via systemd"
+              echo "Service status:"
+              sudo systemctl status push-microservice --no-pager || true
+              echo "Recent logs:"
+              sudo journalctl -u push-microservice -n 50 --no-pager || true
+              exit 1
+            fi
           else
-            echo "❌ Service failed to start"
-            sudo journalctl -u push-microservice -n 20 --no-pager
-            exit 1
+            # Run binary directly in background
+            echo "Starting binary directly in background..."
+            nohup ./push_microservice > push_microservice.log 2>&1 &
+            PID=$!
+            echo "Started with PID: $PID"
+            
+            # Wait a moment for process to initialize
+            sleep 5
+            
+            # Check if process is still running
+            if kill -0 $PID 2>/dev/null; then
+              echo "✅ Process started successfully (PID: $PID)"
+            else
+              echo "❌ Process died immediately"
+              echo "Last 50 lines of log:"
+              tail -n 50 push_microservice.log || true
+              exit 1
+            fi
           fi
           
           echo "Deployment completed successfully"
@@ -160,11 +199,17 @@ jobs:
         echo "Verifying deployment..."
         ssh -i ec2_key.pem -o StrictHostKeyChecking=no ${EC2_USER}@${EC2_HOST} << 'ENDSSH'
           echo "=== Service Status ==="
-          sudo systemctl status push-microservice --no-pager || true
-          
-          echo ""
-          echo "=== Recent Logs ==="
-          sudo journalctl -u push-microservice -n 50 --no-pager || true
+          if [ -f /etc/systemd/system/push-microservice.service ]; then
+            sudo systemctl status push-microservice --no-pager || true
+            echo ""
+            echo "=== Recent Logs ==="
+            sudo journalctl -u push-microservice -n 50 --no-pager || true
+          else
+            echo "No systemd service - checking process and logs..."
+            if [ -f '"$APP_DIR"'/push_microservice.log ]; then
+              tail -n 50 '"$APP_DIR"'/push_microservice.log
+            fi
+          fi
           
           echo ""
           echo "=== Process Check ==="
