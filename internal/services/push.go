@@ -24,6 +24,8 @@ type PushService interface {
 	SendToPlayers(playerIDs []string, title, message string, data map[string]interface{}) (*client.OneSignalResponse, error)
 	SendToSegment(segment, title, message string, data map[string]interface{}) (*client.OneSignalResponse, error)
 	GetPlayers(limit, offset int) (*client.PlayersResponse, error)
+	UpdateNotificationStatus(req *dto.NotificationStatusUpdate) error
+	GetNotificationStatus(notificationID string) (*dto.NotificationStatusResponse, error)
 }
 
 type pushService struct {
@@ -53,6 +55,16 @@ func (s *pushService) ProcessSendMessage(message []byte) error {
 
 	log.Printf("Processing push notification for user: %s", pushReq.UserID)
 
+	// Validate required fields
+	if pushReq.Title == "" {
+		pushReq.Title = "Notification" // Default title
+		log.Printf("Warning: No title provided, using default")
+	}
+	if pushReq.Message == "" {
+		log.Printf("Error: Message is required but was empty")
+		return fmt.Errorf("invalid message format: message field is required")
+	}
+
 	devices, err := s.pushRepo.GetActiveDevicesByUserID(pushReq.UserID)
 	if err != nil {
 		log.Printf("Failed to fetch devices for user %s: %v", pushReq.UserID, err)
@@ -69,7 +81,8 @@ func (s *pushService) ProcessSendMessage(message []byte) error {
 		playerIDs = append(playerIDs, device.PlayerID)
 	}
 
-	log.Printf("Sending notification to %d device(s) for user %s", len(playerIDs), pushReq.UserID)
+	log.Printf("Sending notification to %d device(s) for user %s. Title: '%s', Message: '%s'",
+		len(playerIDs), pushReq.UserID, pushReq.Title, pushReq.Message)
 
 	res, err := s.oneSignalClient.SendToUsers(playerIDs, pushReq.Title, pushReq.Message, pushReq.Data)
 	if err != nil {
@@ -81,6 +94,18 @@ func (s *pushService) ProcessSendMessage(message []byte) error {
 
 	if len(res.GetErrors()) > 0 {
 		log.Printf("Notification warnings: %v", res.GetErrors())
+	}
+
+	// Create notification log
+	notificationLog := &models.NotificationLog{
+		NotificationID: res.ID,
+		UserID:         pushReq.UserID,
+		Status:         string(dto.NotificationStatusPending),
+		Recipients:     res.Recipients,
+	}
+	if err := s.pushRepo.CreateNotificationLog(notificationLog); err != nil {
+		log.Printf("Warning: Failed to create notification log: %v", err)
+		// Don't fail the request if logging fails
 	}
 
 	return nil
@@ -148,6 +173,20 @@ func (s *pushService) SendPushNotification(req *dto.PushRequest) (*dto.PushRespo
 
 	if len(devices) == 0 {
 		log.Printf("No active devices found for user: %s", req.UserID)
+
+		// Create notification log for failed attempt
+		errorMsg := fmt.Sprintf("no active devices for user: %s", req.UserID)
+		notificationLog := &models.NotificationLog{
+			NotificationID: req.NotificationID,
+			UserID:         req.UserID,
+			Status:         string(dto.NotificationStatusFailed),
+			Recipients:     0,
+			Error:          &errorMsg,
+		}
+		if err := s.pushRepo.CreateNotificationLog(notificationLog); err != nil {
+			log.Printf("Warning: Failed to create notification log: %v", err)
+		}
+
 		return &dto.PushResponse{
 			Success: false,
 			Message: "No active devices found for user",
@@ -165,6 +204,20 @@ func (s *pushService) SendPushNotification(req *dto.PushRequest) (*dto.PushRespo
 	res, err := s.oneSignalClient.SendToUsers(playerIDs, req.Title, req.Message, req.Data)
 	if err != nil {
 		log.Printf("Failed to send notification: %v", err)
+
+		// Create notification log for failed attempt
+		errorMsg := err.Error()
+		notificationLog := &models.NotificationLog{
+			NotificationID: req.NotificationID,
+			UserID:         req.UserID,
+			Status:         string(dto.NotificationStatusFailed),
+			Recipients:     0,
+			Error:          &errorMsg,
+		}
+		if logErr := s.pushRepo.CreateNotificationLog(notificationLog); logErr != nil {
+			log.Printf("Warning: Failed to create notification log: %v", logErr)
+		}
+
 		return &dto.PushResponse{
 			Success: false,
 			Message: "Failed to send notification",
@@ -173,6 +226,18 @@ func (s *pushService) SendPushNotification(req *dto.PushRequest) (*dto.PushRespo
 	}
 
 	log.Printf("Notification sent successfully. ID: %s, Recipients: %d", res.ID, res.Recipients)
+
+	// Create notification log
+	notificationLog := &models.NotificationLog{
+		NotificationID: res.ID,
+		UserID:         req.UserID,
+		Status:         string(dto.NotificationStatusPending),
+		Recipients:     res.Recipients,
+	}
+	if err := s.pushRepo.CreateNotificationLog(notificationLog); err != nil {
+		log.Printf("Warning: Failed to create notification log: %v", err)
+		// Don't fail the request if logging fails
+	}
 
 	return &dto.PushResponse{
 		Success:        true,
@@ -237,4 +302,45 @@ func (s *pushService) GetHealth() (*dto.GetHealthResponse, error) {
 	}
 
 	return &response, nil
+}
+
+// UpdateNotificationStatus updates the status of a notification
+func (s *pushService) UpdateNotificationStatus(req *dto.NotificationStatusUpdate) error {
+	log, err := s.pushRepo.GetNotificationLog(req.NotificationID)
+	if err != nil {
+		return fmt.Errorf("notification not found: %w", err)
+	}
+
+	// Update status
+	log.Status = string(req.Status)
+	if req.Error != nil {
+		log.Error = req.Error
+	}
+	log.UpdatedAt = time.Now()
+
+	// Save to database
+	if err := s.pushRepo.UpdateNotificationLog(log); err != nil {
+		return fmt.Errorf("failed to update notification log: %w", err)
+	}
+
+	return nil
+}
+
+// GetNotificationStatus retrieves the status of a notification
+func (s *pushService) GetNotificationStatus(notificationID string) (*dto.NotificationStatusResponse, error) {
+	log, err := s.pushRepo.GetNotificationLog(notificationID)
+	if err != nil {
+		return nil, fmt.Errorf("notification not found: %w", err)
+	}
+
+	response := &dto.NotificationStatusResponse{
+		NotificationID: log.NotificationID,
+		Status:         dto.NotificationStatus(log.Status),
+		Timestamp:      log.UpdatedAt,
+		Error:          log.Error,
+		UserID:         log.UserID,
+		Recipients:     log.Recipients,
+	}
+
+	return response, nil
 }

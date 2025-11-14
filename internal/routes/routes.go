@@ -20,8 +20,9 @@ func SetupRoutes(router *fiber.App, cfg *config.Config, db *gorm.DB, conn *amqp0
 	// Production endpoints
 	router.Post("/push/send", pushHandler.SendPush)
 	router.Post("/push/register", pushHandler.RegisterDevice)
-	router.Get("/push/status", pushHandler.DoesSomething)   // /push/status/{message_id}
-	router.Put("/push/tokens", pushHandler.DoesSomething)   // /push/tokens/{user_id}
+	router.Post("/push/status", pushHandler.UpdateNotificationStatus)
+	router.Get("/push/status/:notification_id", pushHandler.GetNotificationStatus)
+	router.Put("/push/tokens", pushHandler.DoesSomething) // /push/tokens/{user_id}
 	router.Get("/health", pushHandler.GetHealth)
 
 	return consumer

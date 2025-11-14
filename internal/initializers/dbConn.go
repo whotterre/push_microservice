@@ -19,7 +19,7 @@ func ConnectToDB(connString string) (*gorm.DB, error) {
 }
 
 func PerformMigrations(db *gorm.DB) error {
-	err := db.AutoMigrate(&models.UserDevice{})
+	err := db.AutoMigrate(&models.UserDevice{}, &models.NotificationLog{})
 	if err != nil {
 		log.Printf("Failed to perform migrations because: %s", err.Error())
 	}

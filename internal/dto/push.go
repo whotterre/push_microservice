@@ -40,3 +40,30 @@ type PushResponse struct {
 	Errors         []string `json:"errors,omitempty"`
 	Message        string   `json:"message,omitempty"`
 }
+
+// NotificationStatus represents the status of a notification
+type NotificationStatus string
+
+const (
+	NotificationStatusDelivered NotificationStatus = "delivered"
+	NotificationStatusPending   NotificationStatus = "pending"
+	NotificationStatusFailed    NotificationStatus = "failed"
+)
+
+// NotificationStatusUpdate represents a status update for a notification
+type NotificationStatusUpdate struct {
+	NotificationID string             `json:"notification_id" validate:"required"`
+	Status         NotificationStatus `json:"status" validate:"required"`
+	Timestamp      *time.Time         `json:"timestamp,omitempty"`
+	Error          *string            `json:"error,omitempty"`
+}
+
+// NotificationStatusResponse represents the response for status queries
+type NotificationStatusResponse struct {
+	NotificationID string             `json:"notification_id"`
+	Status         NotificationStatus `json:"status"`
+	Timestamp      time.Time          `json:"timestamp"`
+	Error          *string            `json:"error,omitempty"`
+	UserID         string             `json:"user_id,omitempty"`
+	Recipients     int                `json:"recipients,omitempty"`
+}

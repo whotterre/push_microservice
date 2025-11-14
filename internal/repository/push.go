@@ -10,6 +10,9 @@ type PushRepository interface {
 	GetDeviceByPlayerID(playerID string) (*models.UserDevice, error)
 	CreateDevice(device *models.UserDevice) error
 	UpdateDevice(device *models.UserDevice) error
+	CreateNotificationLog(log *models.NotificationLog) error
+	UpdateNotificationLog(log *models.NotificationLog) error
+	GetNotificationLog(notificationID string) (*models.NotificationLog, error)
 }
 
 type pushRepository struct {
@@ -47,4 +50,23 @@ func (r *pushRepository) CreateDevice(device *models.UserDevice) error {
 // UpdateDevice updates an existing device record
 func (r *pushRepository) UpdateDevice(device *models.UserDevice) error {
 	return r.db.Save(device).Error
+}
+
+// CreateNotificationLog creates a new notification log entry
+func (r *pushRepository) CreateNotificationLog(log *models.NotificationLog) error {
+	return r.db.Create(log).Error
+}
+
+// UpdateNotificationLog updates an existing notification log entry
+func (r *pushRepository) UpdateNotificationLog(log *models.NotificationLog) error {
+	return r.db.Save(log).Error
+}
+
+// GetNotificationLog retrieves a notification log by notification ID
+func (r *pushRepository) GetNotificationLog(notificationID string) (*models.NotificationLog, error) {
+	var log models.NotificationLog
+	if err := r.db.Where("notification_id = ?", notificationID).First(&log).Error; err != nil {
+		return nil, err
+	}
+	return &log, nil
 }

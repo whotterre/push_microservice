@@ -92,3 +92,47 @@ func (h *PushHandler) DoesSomething(c *fiber.Ctx) error {
 		"message": "I am a dummy response",
 	})
 }
+
+// UpdateNotificationStatus updates the status of a notification
+func (h *PushHandler) UpdateNotificationStatus(c *fiber.Ctx) error {
+	var req dto.NotificationStatusUpdate
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "Invalid request body",
+		})
+	}
+
+	if err := h.pushService.UpdateNotificationStatus(&req); err != nil {
+		log.Printf("Failed to update notification status: %v", err)
+		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
+			"error":   "Failed to update notification status",
+			"details": err.Error(),
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Notification status updated successfully",
+	})
+}
+
+// GetNotificationStatus retrieves the status of a notification
+func (h *PushHandler) GetNotificationStatus(c *fiber.Ctx) error {
+	notificationID := c.Params("notification_id")
+	if notificationID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
+			"error": "notification_id is required",
+		})
+	}
+
+	status, err := h.pushService.GetNotificationStatus(notificationID)
+	if err != nil {
+		log.Printf("Failed to get notification status: %v", err)
+		return c.Status(fiber.StatusNotFound).JSON(fiber.Map{
+			"error":   "Notification not found",
+			"details": err.Error(),
+		})
+	}
+
+	return c.Status(fiber.StatusOK).JSON(status)
+}
